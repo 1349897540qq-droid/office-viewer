@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Office Viewer</title>
+  <script src="/preload.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --ov-bg: #f1f5f9;
+      --ov-surface: #ffffff;
+      --ov-canvas: #e2e8f0;
+      --ov-border: #cbd5e1;
+      --ov-text: #0f172a;
+      --ov-muted: #64748b;
+      --ov-accent: #2563eb;
+      --ov-accent-soft: rgba(37, 99, 235, 0.12);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ov-bg: #111827;
+        --ov-surface: #1e2430;
+        --ov-canvas: #12161f;
+        --ov-border: #2e3748;
+        --ov-text: #f1f5f9;
+        --ov-muted: #94a3b8;
+        --ov-accent: #60a5fa;
+        --ov-accent-soft: rgba(96, 165, 250, 0.16);
+      }
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--ov-bg);
+      color: var(--ov-text);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+      font-size: 13px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app { display: flex; flex-direction: column; width: 100%; height: 100%; }
+
+    /* Top Toolbar */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 44px;
+      padding: 0 10px;
+      background: var(--ov-surface);
+      border-bottom: 1px solid var(--ov-border);
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .tb-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      height: 28px;
+      padding: 0 8px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--ov-text);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .tb-btn:hover { background: var(--ov-accent-soft); border-color: rgba(37, 99, 235, 0.25); }
+    .tb-btn.active { background: var(--ov-accent-soft); color: var(--ov-accent); border-color: rgba(37, 99, 235, 0.35); }
+    .tb-sep { width: 1px; height: 18px; background: var(--ov-border); margin: 0 2px; flex-shrink: 0; }
+    .file-meta { display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1; overflow: hidden; }
+    .badge {
+      font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+      letter-spacing: 0.4px; color: #fff; text-transform: uppercase; flex-shrink: 0;
+    }
+    .badge-docx { background: #2563eb; }
+    .badge-xlsx { background: #059669; }
+    .badge-pptx { background: #d97706; }
+    .badge-none { background: #64748b; }
+    .file-title { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-stats { font-size: 11px; color: var(--ov-muted); white-space: nowrap; flex-shrink: 0; }
+    .zoom-val { font-size: 11px; font-variant-numeric: tabular-nums; min-width: 36px; text-align: center; color: var(--ov-muted); }
+
+    /* Top-right "..." Menu */
+    .more-wrap { position: relative; flex-shrink: 0; }
+    .btn-more { width: 30px; padding: 0; font-size: 17px; font-weight: 700; letter-spacing: 1px; }
+    .more-menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      width: 254px;
+      background: var(--ov-surface);
+      border: 1px solid var(--ov-border);
+      border-radius: 10px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+      padding: 6px;
+      z-index: 80;
+      display: none;
+    }
+    .more-menu.open { display: block; }
+    .menu-label { font-size: 10px; font-weight: 700; color: var(--ov-muted); padding: 6px 8px 4px; letter-spacing: 0.3px; }
+    .menu-sep { height: 1px; background: var(--ov-border); margin: 5px 4px; }
+    .menu-item {
+      display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px;
+      border: none; border-radius: 6px; background: transparent; color: var(--ov-text);
+      font-size: 12px; text-align: left; cursor: pointer; transition: background 0.12s;
+    }
+    .menu-item:hover:not(:disabled) { background: var(--ov-accent-soft); }
+    .menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
+    .app-icon-pill {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 24px; height: 20px; padding: 0 4px; border-radius: 4px;
+      font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+    .menu-item-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .menu-tag {
+      font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 99px;
+      background: var(--ov-accent-soft); color: var(--ov-accent); flex-shrink: 0;
+    }
+
+    /* Main Workspace */
+    .workspace { display: flex; flex: 1; min-height: 0; position: relative; overflow: hidden; }
+    .drawer {
+      width: 262px; max-width: 80%; background: var(--ov-surface);
+      border-right: 1px solid var(--ov-border); display: flex; flex-direction: column;
+      flex-shrink: 0; overflow: hidden; z-index: 10;
+    }
+    .drawer.hidden { display: none; }
+    .drawer-tabs { display: flex; border-bottom: 1px solid var(--ov-border); padding: 6px 8px 0; gap: 4px; }
+    .drawer-tab {
+      flex: 1; padding: 6px 8px; border: none; background: transparent; color: var(--ov-muted);
+      font-size: 12px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent;
+    }
+    .drawer-tab.active { color: var(--ov-accent); border-bottom-color: var(--ov-accent); }
+    .path-bar { padding: 8px; border-bottom: 1px solid var(--ov-border); display: flex; gap: 4px; }
+    .path-input {
+      flex: 1; min-width: 0; height: 28px; padding: 0 8px;
+      border: 1px solid var(--ov-border); border-radius: 5px;
+      background: var(--ov-bg); color: var(--ov-text); font-size: 11px; outline: none;
+    }
+    .path-input:focus { border-color: var(--ov-accent); }
+    .path-go {
+      height: 28px; padding: 0 9px; border: none; border-radius: 5px;
+      background: #2563eb; color: #fff; font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0;
+    }
+    .drawer-body { flex: 1; overflow-y: auto; padding: 6px; }
+    .drawer-sec-title { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--ov-muted); padding: 8px 6px 4px; }
+    .file-item {
+      display: flex; align-items: flex-start; gap: 7px; padding: 7px 8px;
+      border-radius: 6px; cursor: pointer; margin-bottom: 2px; border: 1px solid transparent;
+    }
+    .file-item:hover { background: var(--ov-accent-soft); }
+    .file-item.active { background: var(--ov-accent-soft); border-color: rgba(37, 99, 235, 0.35); }
+    .file-item-info { min-width: 0; flex: 1; }
+    .file-item-name { font-size: 12px; font-weight: 500; word-break: break-all; line-height: 1.35; }
+    .file-item-sub { font-size: 10px; color: var(--ov-muted); margin-top: 2px; }
+    .toc-item {
+      display: block; width: 100%; text-align: left; background: transparent; border: none;
+      color: var(--ov-text); padding: 5px 8px; border-radius: 5px; cursor: pointer;
+      font-size: 12px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .toc-item:hover { background: var(--ov-accent-soft); color: var(--ov-accent); }
+    .toc-l2 { padding-left: 18px; font-size: 11.5px; color: var(--ov-muted); }
+    .toc-l3 { padding-left: 28px; font-size: 11px; color: var(--ov-muted); }
+
+    /* Stage */
+    .stage { flex: 1; overflow: auto; background: var(--ov-canvas); padding: 18px 16px 44px; position: relative; }
+
+    /* Word A4 Paper */
+    .docx-paper {
+      width: 100%; max-width: 820px; margin: 0 auto; background: #ffffff; color: #1a202c;
+      border-radius: 6px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+      padding: 36px 42px 48px; transform-origin: top center; line-height: 1.65;
+    }
+    .docx-header-bar {
+      font-size: 11px; color: #64748b; text-align: right; padding-bottom: 6px;
+      margin-bottom: 16px; border-bottom: 1px solid #cbd5e1;
+    }
+    .ov-p { margin: 0 0 6px 0; word-wrap: break-word; overflow-wrap: break-word; }
+    .ov-h1, .ov-h2 { scroll-margin-top: 16px; }
+    .ov-spacer { height: 8px; }
+    .ov-bullet { font-weight: 700; color: #2b6cb0; }
+    .ov-link { color: #2563eb; text-decoration: underline; }
+    .ov-img { max-width: 100%; height: auto; border-radius: 4px; display: block; margin: 8px auto; }
+    .ov-img-skip { display: inline-block; font-size: 11px; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+    .ov-page-break { display: flex; align-items: center; gap: 10px; margin: 22px 0; color: #94a3b8; font-size: 10px; user-select: none; }
+    .ov-page-break::before, .ov-page-break::after { content: ""; flex: 1; border-top: 1px dashed #cbd5e1; }
+
+    .ov-table-wrap { width: 100%; overflow-x: auto; margin: 8px 0 12px; }
+    .ov-table { width: 100%; border-collapse: collapse; font-size: 12px; border-top: 2px solid #1b365d; border-bottom: 2px solid #1b365d; }
+    .ov-table td, .ov-table th {
+      border-top: 1px solid #cbd5e0; border-bottom: 1px solid #cbd5e0;
+      border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;
+      padding: 6px 8px; line-height: 1.45;
+    }
+    .ov-table td:first-child { border-left: none; }
+    .ov-table td:last-child { border-right: none; }
+    .ov-table .ov-p { margin-bottom: 3px; }
+    .ov-table .ov-p:last-child { margin-bottom: 0; }
+    .ov-callout-tbl { width: 100%; border-collapse: collapse; border-radius: 4px; overflow: hidden; }
+    .ov-callout-tbl td { padding: 11px 14px; }
+    .ov-callout-tbl .ov-p:last-child { margin-bottom: 0; }
+
+    /* Excel */
+    .xlsx-shell { display: flex; flex-direction: column; height: 100%; background: var(--ov-surface); border-radius: 8px; border: 1px solid var(--ov-border); overflow: hidden; }
+    .xlsx-topbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--ov-border); flex-wrap: wrap; }
+    .xlsx-tabs { display: flex; gap: 4px; overflow-x: auto; flex: 1; }
+    .xlsx-tab { padding: 4px 10px; border-radius: 5px; border: 1px solid var(--ov-border); background: transparent; color: var(--ov-text); font-size: 12px; cursor: pointer; white-space: nowrap; }
+    .xlsx-tab.active { background: #059669; color: #fff; border-color: #059669; font-weight: 600; }
+    .xlsx-search { height: 26px; padding: 0 8px; border: 1px solid var(--ov-border); border-radius: 5px; background: var(--ov-bg); color: var(--ov-text); font-size: 12px; width: 170px; }
+    .xlsx-grid-wrap { flex: 1; overflow: auto; background: #ffffff; color: #0f172a; }
+    .ov-xl-table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+    .ov-xl-table th { position: sticky; top: 0; z-index: 2; background: #f1f5f9; color: #475569; font-weight: 600; border: 1px solid #cbd5e1; padding: 4px 8px; text-align: center; }
+    .ov-xl-table td { border: 1px solid #e2e8f0; padding: 4px 8px; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+    .ov-xl-table td.ov-xl-rn, .ov-xl-table th.ov-xl-rn { position: sticky; left: 0; z-index: 1; background: #f8fafc; color: #64748b; text-align: center; font-size: 11px; width: 38px; }
+    .ov-xl-table tr.xl-hidden { display: none; }
+    .ov-xl-table tr:hover td:not(.ov-xl-rn) { background: rgba(37, 99, 235, 0.06); }
+
+    /* PowerPoint */
+    .pptx-wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+    .pptx-nav { display: flex; align-items: center; justify-content: space-between; background: var(--ov-surface); border: 1px solid var(--ov-border); border-radius: 8px; padding: 6px 12px; }
+    .pptx-slide { background: #ffffff; color: #0f172a; border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2); min-height: 440px; padding: 34px 40px; display: flex; flex-direction: column; }
+    .ov-ppt-title { margin: 0 0 14px 0; font-size: 22px; color: #1e3a8a; border-bottom: 2px solid #2563eb; padding-bottom: 8px; }
+    .ov-ppt-subtitle { font-size: 15px; color: #475569; margin: 0 0 12px 0; }
+    .ov-ppt-p { margin: 5px 0; font-size: 14px; line-height: 1.55; }
+    .ov-ppt-img-wrap { margin: 10px 0; text-align: center; }
+    .pptx-notes { background: var(--ov-surface); border: 1px solid var(--ov-border); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--ov-muted); white-space: pre-wrap; }
+
+    /* Cards & Toast */
+    .state-card { max-width: 480px; margin: 48px auto; background: var(--ov-surface); border: 1px solid var(--ov-border); border-radius: 10px; padding: 26px 24px; text-align: center; }
+    .state-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+    .state-desc { font-size: 12px; color: var(--ov-muted); line-height: 1.6; }
+    .state-err { color: #ef4444; }
+    .toast {
+      position: fixed; bottom: 14px; right: 16px; background: #0f172a; color: #fff;
+      padding: 7px 13px; border-radius: 6px; font-size: 12px; opacity: 0;
+      pointer-events: none; transition: opacity 0.2s; z-index: 99; box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    }
+    .toast.show { opacity: 0.94; }
+
+    @media print {
+      html, body, .app, .workspace, .stage { height: auto !important; overflow: visible !important; background: #fff !important; padding: 0 !important; }
+      .toolbar, .drawer, .toast, .pptx-nav { display: none !important; }
+      .docx-paper { box-shadow: none !important; max-width: none !important; padding: 0 !important; transform: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="toolbar">
+      <button id="btnDrawer" class="tb-btn" title="切换文件列表与目录大纲">☰ 文件/目录</button>
+      <div class="tb-sep"></div>
+      <div class="file-meta">
+        <span id="typeBadge" class="badge badge-none">OFFICE</span>
+        <span id="fileName" class="file-title">Office Viewer</span>
+        <span id="fileStats" class="file-stats"></span>
+      </div>
+      <button id="btnZoomOut" class="tb-btn" title="缩小">−</button>
+      <span id="zoomLabel" class="zoom-val">100%</span>
+      <button id="btnZoomIn" class="tb-btn" title="放大">+</button>
+      <div class="tb-sep"></div>
+      <button id="btnRefresh" class="tb-btn" title="重新读取最新文件内容">↻</button>
+      <div class="more-wrap">
+        <button id="btnMore" class="tb-btn btn-more" title="更多操作 / 在外部 Office 软件中打开" aria-haspopup="true" aria-expanded="false">⋯</button>
+        <div id="moreMenu" class="more-menu" role="menu"></div>
+      </div>
+    </div>
+
+    <div class="workspace">
+      <aside id="drawer" class="drawer hidden">
+        <div class="drawer-tabs">
+          <button id="tabFiles" class="drawer-tab active">📂 文件列表</button>
+          <button id="tabOutline" class="drawer-tab">📑 文档目录</button>
+        </div>
+        <div class="path-bar">
+          <input id="pathInput" class="path-input" type="text" placeholder="输入本地 .docx/.xlsx/.pptx 或目录路径" />
+          <button id="btnOpenPath" class="path-go">打开</button>
+        </div>
+        <div id="drawerBody" class="drawer-body"></div>
+      </aside>
+
+      <main id="stage" class="stage">
+        <div class="state-card">
+          <div class="state-title">Office Viewer 正在加载...</div>
+          <div class="state-desc">正在读取最新预览文档与本机已安装的 Office 软件列表。</div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <div id="toast" class="toast"></div>
+
+  <script>
+    (function () {
+      const qs = new URLSearchParams(window.location.search);
+      const metaTok = document.querySelector('meta[name="ov-token"]');
+      const TOKEN = qs.get("token") || (metaTok ? metaTok.getAttribute("content") : "") || "";
+      const INITIAL_FILE = qs.get("path") || qs.get("file") || qs.get("filepath") || qs.get("filePath") || qs.get("uri") || "";
+      const INITIAL_DIR = qs.get("directory") || "";
+      window.__sidecarReady = true;
+
+      let state = {
+        mode: "empty",
+        file: null,
+        directory: INITIAL_DIR,
+        files: [],
+        recentFiles: [],
+        availableApps: [],
+        document: null,
+        stateVersion: -1,
+        drawerOpen: false,
+        moreOpen: false,
+        drawerTab: "files",
+        zoom: 100,
+        activeSheet: 0,
+        activeSlide: 0,
+      };
+
+      const elDrawer = document.getElementById("drawer");
+      const elDrawerBody = document.getElementById("drawerBody");
+      const elStage = document.getElementById("stage");
+      const elTypeBadge = document.getElementById("typeBadge");
+      const elFileName = document.getElementById("fileName");
+      const elFileStats = document.getElementById("fileStats");
+      const elZoomLabel = document.getElementById("zoomLabel");
+      const elPathInput = document.getElementById("pathInput");
+      const elTabFiles = document.getElementById("tabFiles");
+      const elTabOutline = document.getElementById("tabOutline");
+      const elBtnDrawer = document.getElementById("btnDrawer");
+      const elBtnMore = document.getElementById("btnMore");
+      const elMoreMenu = document.getElementById("moreMenu");
+      const elToast = document.getElementById("toast");
+
+      function showToast(msg) {
+        elToast.textContent = msg;
+        elToast.classList.add("show");
+        setTimeout(() => elToast.classList.remove("show"), 2000);
+      }
+
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, (c) => (
+          { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+        ));
+      }
+
+      function apiUrl(endpoint, params) {
+        const rel = endpoint.replace(/^\/+/, "");
+        const u = new URL(rel, window.location.href);
+        u.search = "";
+        if (TOKEN) u.searchParams.set("token", TOKEN);
+        if (params) {
+          for (const [k, v] of Object.entries(params)) {
+            if (v) u.searchParams.set(k, v);
+          }
+        }
+        return u.toString();
+      }
+
+      async function loadPreview(filePath, directory, silent) {
+        const isSwitching = filePath && (!state.file || state.file.path !== filePath);
+        if (isSwitching && !silent) renderLoading("正在解析 " + filePath.split("/").pop() + " ...");
+        try {
+          const resp = await fetch(apiUrl("/api/preview", {
+            path: filePath || "",
+            directory: directory || state.directory || "",
+          }));
+          const sc = await resp.json();
+          applyPayload(sc);
+        } catch (err) {
+          renderError("加载失败：" + err.message);
+        }
+      }
+
+      async function openInExternal(mode, appPath) {
+        toggleMoreMenu(false);
+        if (!state.file || !state.file.path) {
+          showToast("请先打开一个 Office 文件");
+          return;
+        }
+        try {
+          const headers = { "Content-Type": "application/json" };
+          if (TOKEN) headers["X-Sidecar-Token"] = TOKEN;
+          const resp = await fetch(apiUrl("/api/open-external"), {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              path: state.file.path,
+              mode: mode || "default",
+              appPath: appPath || "",
+            }),
+          });
+          const data = await resp.json();
+          if (data.ok) showToast(data.message || "已调用外部软件打开");
+          else showToast("打开失败：" + (data.error || "未知错误"));
+        } catch (err) {
+          showToast("调用失败：" + err.message);
+        }
+      }
+
+      function applyPayload(sc) {
+        state.mode = sc.mode || "empty";
+        state.file = sc.file || null;
+        state.directory = sc.directory || state.directory;
+        if (Array.isArray(sc.files)) state.files = sc.files;
+        if (Array.isArray(sc.recentFiles)) state.recentFiles = sc.recentFiles;
+        if (Array.isArray(sc.availableApps)) state.availableApps = sc.availableApps;
+        if (typeof sc.stateVersion === "number") state.stateVersion = sc.stateVersion;
+        state.document = sc.document || null;
+        state.activeSheet = 0;
+        state.activeSlide = 0;
+
+        if (state.file) elPathInput.value = state.file.path;
+        else if (state.directory) elPathInput.value = state.directory;
+
+        updateToolbar();
+        renderDrawer();
+        renderMoreMenu();
+
+        if (sc.mode === "error") {
+          renderError(sc.error || "未知解析错误");
+        } else if (sc.mode === "empty" || !state.document) {
+          renderEmpty(sc.message || "请点击左上角「文件/目录」选择本地 .docx / .xlsx / .pptx 文件。");
+          if (!state.drawerOpen) toggleDrawer(true);
+        } else {
+          renderDocument();
+        }
+      }
+
+      function updateToolbar() {
+        const f = state.file;
+        const doc = state.document;
+        if (!f) {
+          elTypeBadge.className = "badge badge-none";
+          elTypeBadge.textContent = "OFFICE";
+          elFileName.textContent = "Office Viewer";
+          elFileName.title = "";
+          elFileStats.textContent = "";
+          return;
+        }
+        elTypeBadge.className = "badge badge-" + f.ext;
+        elTypeBadge.textContent = f.ext.toUpperCase();
+        elFileName.textContent = f.name;
+        elFileName.title = f.path;
+        let stText = f.sizeHuman;
+        if (doc && doc.stats) {
+          if (doc.kind === "docx") stText = `${doc.stats.tables || 0} 表 · ~${doc.stats.words || 0} 字 · ${f.sizeHuman}`;
+          else if (doc.kind === "xlsx") stText = `${doc.stats.sheets || 0} 表 · ${doc.stats.totalRows || 0} 行`;
+          else if (doc.kind === "pptx") stText = `${doc.stats.slides || 0} 页幻灯片`;
+        }
+        elFileStats.textContent = stText;
+        elZoomLabel.textContent = state.zoom + "%";
+      }
+
+      function toggleDrawer(force) {
+        state.drawerOpen = (typeof force === "boolean") ? force : !state.drawerOpen;
+        elDrawer.classList.toggle("hidden", !state.drawerOpen);
+        elBtnDrawer.classList.toggle("active", state.drawerOpen);
+      }
+
+      function toggleMoreMenu(force) {
+        state.moreOpen = (typeof force === "boolean") ? force : !state.moreOpen;
+        elMoreMenu.classList.toggle("open", state.moreOpen);
+        elBtnMore.classList.toggle("active", state.moreOpen);
+        elBtnMore.setAttribute("aria-expanded", String(state.moreOpen));
+      }
+
+      function renderMoreMenu() {
+        const hasFile = Boolean(state.file && state.file.path);
+        const dis = hasFile ? "" : " disabled";
+        const apps = state.availableApps || [];
+
+        let html = `<div class="menu-label">跳转到本地 Office 软件阅览</div>`;
+        if (apps.length) {
+          html += apps.map((app) => {
+            const tag = app.primary ? `<span class="menu-tag">推荐</span>` : "";
+            return `<button class="menu-item" data-action="app" data-app-path="${escapeHtml(app.appPath)}"${dis}>
+              <span class="app-icon-pill" style="background:${escapeHtml(app.color || "#2563eb")}">${escapeHtml(app.badge || "APP")}</span>
+              <span class="menu-item-text">在 ${escapeHtml(app.name)} 中打开</span>
+              ${tag}
+            </button>`;
+          }).join("");
+        } else {
+          html += `<div class="menu-label" style="font-weight:400;padding-top:2px;">未检测到常见 Office 软件，可用系统默认打开</div>`;
+        }
+        html += `<button class="menu-item" data-action="default"${dis}>
+          <span class="app-icon-pill" style="background:#64748b">↗</span>
+          <span class="menu-item-text">用系统默认应用打开</span>
+        </button>`;
+        html += `<div class="menu-sep"></div>`;
+        html += `<div class="menu-label">文件与页面操作</div>`;
+        html += `<button class="menu-item" data-action="reveal"${dis}>
+          <span class="app-icon-pill" style="background:#0284c7">F</span>
+          <span class="menu-item-text">在访达（Finder）中显示</span>
+        </button>`;
+        html += `<button class="menu-item" data-action="copyPath"${dis}>
+          <span class="app-icon-pill" style="background:#475569">⌘</span>
+          <span class="menu-item-text">复制文件绝对路径</span>
+        </button>`;
+        html += `<button class="menu-item" data-action="print"${dis}>
+          <span class="app-icon-pill" style="background:#0f766e">PDF</span>
+          <span class="menu-item-text">打印 / 另存为 PDF</span>
+        </button>`;
+        html += `<button class="menu-item" data-action="refresh">
+          <span class="app-icon-pill" style="background:#334155">↻</span>
+          <span class="menu-item-text">刷新文件并重检本机软件</span>
+        </button>`;
+
+        elMoreMenu.innerHTML = html;
+        elMoreMenu.querySelectorAll(".menu-item").forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const act = btn.dataset.action;
+            if (act === "app") openInExternal("app", btn.dataset.appPath);
+            else if (act === "default") openInExternal("default", "");
+            else if (act === "reveal") openInExternal("reveal", "");
+            else if (act === "copyPath") {
+              toggleMoreMenu(false);
+              if (state.file && navigator.clipboard) {
+                navigator.clipboard.writeText(state.file.path).then(() => showToast("已复制文件路径")).catch(() => {});
+              }
+            } else if (act === "print") {
+              toggleMoreMenu(false);
+              window.print();
+            } else if (act === "refresh") {
+              toggleMoreMenu(false);
+              loadPreview(state.file ? state.file.path : "", state.directory);
+              showToast("已刷新文件与本机软件列表");
+            }
+          });
+        });
+      }
+
+      function renderDrawer() {
+        elTabFiles.classList.toggle("active", state.drawerTab === "files");
+        elTabOutline.classList.toggle("active", state.drawerTab === "outline");
+
+        if (state.drawerTab === "outline") {
+          const doc = state.document;
+          if (!doc || doc.kind !== "docx" || !doc.outline || !doc.outline.length) {
+            elDrawerBody.innerHTML = '<div class="drawer-sec-title">当前文档暂无可导航标题大纲</div>';
+            return;
+          }
+          elDrawerBody.innerHTML = doc.outline.map((h) => (
+            `<button class="toc-item toc-l${Math.min(3, h.level)}" data-anchor="${escapeHtml(h.id)}" title="${escapeHtml(h.text)}">${escapeHtml(h.text)}</button>`
+          )).join("");
+          elDrawerBody.querySelectorAll(".toc-item").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const target = document.getElementById(btn.dataset.anchor);
+              if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+            });
+          });
+          return;
+        }
+
+        let html = "";
+        if (state.files && state.files.length) {
+          html += `<div class="drawer-sec-title">当前目录 Office 文件 (${state.files.length})</div>`;
+          html += state.files.map((f) => {
+            const active = state.file && state.file.path === f.path ? " active" : "";
+            return `<div class="file-item${active}" data-path="${escapeHtml(f.path)}">
+              <span class="badge badge-${escapeHtml(f.ext)}">${escapeHtml(f.ext)}</span>
+              <div class="file-item-info">
+                <div class="file-item-name">${escapeHtml(f.relPath || f.name)}</div>
+                <div class="file-item-sub">${escapeHtml(f.sizeHuman)} · ${escapeHtml(f.mtimeHuman)}</div>
+              </div>
+            </div>`;
+          }).join("");
+        }
+        if (state.recentFiles && state.recentFiles.length) {
+          html += `<div class="drawer-sec-title">最近预览</div>`;
+          html += state.recentFiles.map((f) => {
+            const active = state.file && state.file.path === f.path ? " active" : "";
+            return `<div class="file-item${active}" data-path="${escapeHtml(f.path)}">
+              <span class="badge badge-${escapeHtml(f.ext)}">${escapeHtml(f.ext)}</span>
+              <div class="file-item-info">
+                <div class="file-item-name">${escapeHtml(f.name)}</div>
+                <div class="file-item-sub">${escapeHtml(f.sizeHuman)} · ${escapeHtml(f.mtimeHuman)}</div>
+              </div>
+            </div>`;
+          }).join("");
+        }
+        if (!html) html = '<div class="drawer-sec-title">暂无扫描结果，请在上方输入本地文件或文件夹路径。</div>';
+        elDrawerBody.innerHTML = html;
+        elDrawerBody.querySelectorAll(".file-item").forEach((item) => {
+          item.addEventListener("click", () => loadPreview(item.dataset.path, state.directory));
+        });
+      }
+
+      function renderLoading(msg) {
+        elStage.innerHTML = `<div class="state-card"><div class="state-title">${escapeHtml(msg)}</div><div class="state-desc">正在本地解析 OOXML 文档结构与排版样式...</div></div>`;
+      }
+      function renderEmpty(msg) {
+        elStage.innerHTML = `<div class="state-card"><div class="state-title">准备就绪</div><div class="state-desc">${escapeHtml(msg)}</div></div>`;
+      }
+      function renderError(msg) {
+        elStage.innerHTML = `<div class="state-card"><div class="state-title state-err">预览失败</div><div class="state-desc">${escapeHtml(msg)}</div></div>`;
+      }
+
+      function applyZoom() {
+        elZoomLabel.textContent = state.zoom + "%";
+        const paper = elStage.querySelector(".docx-paper");
+        if (paper) {
+          const s = state.zoom / 100;
+          paper.style.transform = s === 1 ? "" : `scale(${s})`;
+          paper.style.width = s > 1 ? (100 / s) + "%" : "100%";
+        }
+      }
+
+      function renderDocument() {
+        const doc = state.document;
+        if (!doc) return;
+        if (doc.kind === "docx") {
+          const hdr = doc.headerText ? `<div class="docx-header-bar">${escapeHtml(doc.headerText)}</div>` : "";
+          const skipNotice = doc.skippedImages > 0
+            ? `<div class="ov-p" style="font-size:11px;color:#b45309;background:#fffbeb;padding:6px 10px;border-radius:4px;margin-bottom:10px;">提示：有 ${doc.skippedImages} 张超高分辨率内嵌图片被跳过。</div>`
+            : "";
+          elStage.innerHTML = `<article class="docx-paper">${hdr}${skipNotice}${doc.html}</article>`;
+          elStage.scrollTop = 0;
+          applyZoom();
+        } else if (doc.kind === "xlsx") {
+          renderXlsx(doc);
+        } else if (doc.kind === "pptx") {
+          renderPptx(doc);
+        }
+      }
+
+      function renderXlsx(doc) {
+        const sheets = doc.sheets || [];
+        if (!sheets.length) { renderEmpty("该 Excel 工作簿无工作表。"); return; }
+        const cur = sheets[state.activeSheet] || sheets[0];
+        const tabsHtml = sheets.map((sh, i) => (
+          `<button class="xlsx-tab${i === state.activeSheet ? " active" : ""}" data-idx="${i}">${escapeHtml(sh.name)} (${sh.rows})</button>`
+        )).join("");
+        const truncHint = cur.truncated ? `<span style="font-size:11px;color:#d97706;">已截断至前 500 行 × 60 列</span>` : "";
+
+        elStage.innerHTML = `<div class="xlsx-shell">
+          <div class="xlsx-topbar">
+            <div class="xlsx-tabs">${tabsHtml}</div>
+            ${truncHint}
+            <input id="xlSearch" class="xlsx-search" type="text" placeholder="搜索当前工作表行..." />
+          </div>
+          <div class="xlsx-grid-wrap">${cur.html}</div>
+        </div>`;
+
+        elStage.querySelectorAll(".xlsx-tab").forEach((btn) => {
+          btn.addEventListener("click", () => { state.activeSheet = parseInt(btn.dataset.idx, 10); renderXlsx(doc); });
+        });
+        const searchEl = document.getElementById("xlSearch");
+        searchEl.addEventListener("input", () => {
+          const q = searchEl.value.trim().toLowerCase();
+          elStage.querySelectorAll(".ov-xl-table tbody tr").forEach((tr) => {
+            tr.classList.toggle("xl-hidden", Boolean(q) && !tr.textContent.toLowerCase().includes(q));
+          });
+        });
+        elStage.querySelectorAll(".ov-xl-table td:not(.ov-xl-rn)").forEach((td) => {
+          td.addEventListener("click", () => {
+            const txt = td.textContent.trim();
+            if (txt && navigator.clipboard) navigator.clipboard.writeText(txt).then(() => showToast("已复制单元格内容")).catch(() => {});
+          });
+        });
+      }
+
+      function renderPptx(doc) {
+        const slides = doc.slides || [];
+        if (!slides.length) { renderEmpty("该 PowerPoint 文件无幻灯片。"); return; }
+        const idx = Math.max(0, Math.min(state.activeSlide, slides.length - 1));
+        state.activeSlide = idx;
+        const sl = slides[idx];
+        const notesHtml = sl.notes ? `<div class="pptx-notes"><strong>演讲者备注：</strong>\n${escapeHtml(sl.notes)}</div>` : "";
+
+        elStage.innerHTML = `<div class="pptx-wrap">
+          <div class="pptx-nav">
+            <button id="pptPrev" class="tb-btn" ${idx === 0 ? "disabled" : ""}>← 上一页</button>
+            <span style="font-weight:600;font-size:12px;">第 ${idx + 1} / ${slides.length} 页 · ${escapeHtml(sl.title)}</span>
+            <button id="pptNext" class="tb-btn" ${idx >= slides.length - 1 ? "disabled" : ""}>下一页 →</button>
+          </div>
+          <section class="pptx-slide">${sl.html}</section>
+          ${notesHtml}
+        </div>`;
+
+        document.getElementById("pptPrev").addEventListener("click", () => { if (state.activeSlide > 0) { state.activeSlide--; renderPptx(doc); } });
+        document.getElementById("pptNext").addEventListener("click", () => { if (state.activeSlide < slides.length - 1) { state.activeSlide++; renderPptx(doc); } });
+      }
+
+      // Live sync with MCP server via SSE (only triggers when MCP pushes a new version)
+      function connectLiveSync() {
+        try {
+          const es = new EventSource(apiUrl("/api/events"));
+          es.onmessage = (ev) => {
+            try {
+              const data = JSON.parse(ev.data);
+              if (typeof data.version !== "number") return;
+              if (state.stateVersion < 0) {
+                state.stateVersion = data.version;
+                return;
+              }
+              if (data.version > state.stateVersion && data.lastFile) {
+                state.stateVersion = data.version;
+                loadPreview(data.lastFile, data.lastDirectory || state.directory, true);
+              }
+            } catch (_) {}
+          };
+          es.onerror = () => {
+            es.close();
+            setTimeout(connectLiveSync, 5000);
+          };
+        } catch (_) {}
+      }
+
+      // Controls
+      elBtnDrawer.addEventListener("click", () => toggleDrawer());
+      elBtnMore.addEventListener("click", (e) => { e.stopPropagation(); renderMoreMenu(); toggleMoreMenu(); });
+      document.addEventListener("click", (e) => {
+        if (state.moreOpen && !elMoreMenu.contains(e.target) && e.target !== elBtnMore) toggleMoreMenu(false);
+      });
+      elTabFiles.addEventListener("click", () => { state.drawerTab = "files"; renderDrawer(); });
+      elTabOutline.addEventListener("click", () => { state.drawerTab = "outline"; renderDrawer(); });
+
+      document.getElementById("btnZoomOut").addEventListener("click", () => { state.zoom = Math.max(60, state.zoom - 10); applyZoom(); });
+      document.getElementById("btnZoomIn").addEventListener("click", () => { state.zoom = Math.min(150, state.zoom + 10); applyZoom(); });
+      document.getElementById("btnRefresh").addEventListener("click", () => {
+        loadPreview(state.file ? state.file.path : "", state.directory);
+        showToast("已重新加载文件");
+      });
+
+      function handleManualPath() {
+        const val = elPathInput.value.trim();
+        if (!val) return;
+        if (/\.(docx|xlsx|pptx)$/i.test(val)) loadPreview(val, "");
+        else loadPreview("", val);
+      }
+      document.getElementById("btnOpenPath").addEventListener("click", handleManualPath);
+      elPathInput.addEventListener("keydown", (e) => { if (e.key === "Enter") handleManualPath(); });
+
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && state.moreOpen) { toggleMoreMenu(false); return; }
+        if (state.document && state.document.kind === "pptx" && document.activeElement !== elPathInput) {
+          if (e.key === "ArrowLeft" && state.activeSlide > 0) { state.activeSlide--; renderPptx(state.document); }
+          else if (e.key === "ArrowRight" && state.activeSlide < state.document.slides.length - 1) { state.activeSlide++; renderPptx(state.document); }
+        }
+      });
+
+      loadPreview(INITIAL_FILE, INITIAL_DIR).then(() => connectLiveSync());
+    })();
+  </script>
+</body>
+</html>

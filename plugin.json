@@ -1,0 +1,21 @@
+{
+  "name": "office-viewer",
+  "displayName": "Office Viewer",
+  "version": "2.1.0",
+  "description": "Zero-dependency Antigravity sidecar plugin that previews local Microsoft Office files (.docx, .xlsx, .pptx) directly in the side pane, with auto-detected one-click handoff to local desktop Office apps.",
+  "author": {
+    "name": "Chaoming Wang",
+    "url": "https://github.com/1349897540qq-droid"
+  },
+  "homepage": "https://github.com/1349897540qq-droid/office-viewer",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1349897540qq-droid/office-viewer.git"
+  },
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Preview the latest .docx document in my workspace using Office Viewer",
+    "List all Office files (.docx, .xlsx, .pptx) in this project and open one in the side pane",
+    "Generate a Word report and open it immediately in Office Viewer"
+  ]
+}

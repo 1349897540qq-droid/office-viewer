@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "office_viewer": {
+      "command": "python3",
+      "args": [
+        "${PLUGIN_ROOT}/bin/office_viewer_mcp.py",
+        "--plugin-root",
+        "${PLUGIN_ROOT}",
+        "--data-dir",
+        "${PLUGIN_DATA}"
+      ]
+    }
+  }
+}

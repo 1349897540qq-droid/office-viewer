@@ -1,0 +1,25 @@
+{
+  "command": "python3",
+  "args": [
+    "server.py"
+  ],
+  "description": "Interactive side-pane previewer for local .docx, .xlsx, and .pptx documents with one-click handoff to local Office apps",
+  "display_name": "Office Viewer",
+  "has_web_ui": true,
+  "restart_policy": "always",
+  "ui_config": {
+    "display_name": "Office Viewer",
+    "views": [
+      {
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "path": "/ui.html",
+        "title": "Office Viewer",
+        "file_extensions": [
+          ".docx",
+          ".xlsx",
+          ".pptx"
+        ]
+      }
+    ]
+  }
+}
