@@ -8,7 +8,7 @@ A lightweight, zero-dependency **Antigravity UI Sidecar + MCP plugin** for previ
 - **High-Fidelity Word (`.docx`) Preview**: Clean A4 paper canvas preserving headings, tables (including merged cells, column widths, shading, and callout boxes), rich text styles, embedded images, page breaks, and an auto-generated clickable **Outline TOC**.
 - **Interactive Excel (`.xlsx`) Preview**: Multi-sheet tab switching, merged cells, Excel serial date formatting, sticky row/column headers, live row search filtering, and click-to-copy cell values.
 - **PowerPoint (`.pptx`) Slide Viewer**: Slide-by-slide stage with keyboard arrow navigation (`←` / `→`), embedded images, tables, and speaker notes.
-- **Live Agent Sync (MCP + SSE)**: When your agent generates, updates, or opens an Office document via `preview_office_file`, the side pane updates automatically in real time via Server-Sent Events.
+- **Live Agent Sync (MCP + Lightweight Polling)**: When your agent generates, updates, or opens an Office document via `preview_office_file`, the side pane updates automatically in real time without occupying persistent HTTP/1.1 connection slots.
 - **Smart Desktop App Handoff (`⋯` Menu)**: Automatically detects locally installed desktop Office applications (Microsoft Word/Excel/PowerPoint, WPS Office, Apple Pages/Numbers/Keynote, LibreOffice, ONLYOFFICE) across macOS, Windows, and Linux for one-click opening, plus reveal-in-Finder/Explorer, copy path, and print/save to PDF.
 
 ## Prerequisites

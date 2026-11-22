@@ -302,10 +302,18 @@
     (function () {
       const qs = new URLSearchParams(window.location.search);
       const metaTok = document.querySelector('meta[name="ov-token"]');
+      const sidecarObj = window.sidecar || {};
       const TOKEN = qs.get("token") || (metaTok ? metaTok.getAttribute("content") : "") || "";
-      const INITIAL_FILE = qs.get("path") || qs.get("file") || qs.get("filepath") || qs.get("filePath") || qs.get("uri") || "";
+      const INITIAL_FILE = (
+        qs.get("path") || qs.get("file") || qs.get("filepath") || qs.get("filePath") ||
+        qs.get("uri") || qs.get("fileUri") || qs.get("file_path") || qs.get("file_uri") ||
+        qs.get("resource") || sidecarObj.filePath || sidecarObj.fileUri || sidecarObj.path || sidecarObj.uri || ""
+      );
       const INITIAL_DIR = qs.get("directory") || "";
       window.__sidecarReady = true;
+
+      let activePreviewCtrl = null;
+      let pageClosing = false;
 
       let state = {
         mode: "empty",
@@ -367,15 +375,31 @@
       async function loadPreview(filePath, directory, silent) {
         const isSwitching = filePath && (!state.file || state.file.path !== filePath);
         if (isSwitching && !silent) renderLoading("正在解析 " + filePath.split("/").pop() + " ...");
+        if (activePreviewCtrl) {
+          try { activePreviewCtrl.abort(); } catch (_) {}
+        }
+        const ctrl = new AbortController();
+        activePreviewCtrl = ctrl;
+        const tid = setTimeout(() => ctrl.abort(), 20000);
         try {
           const resp = await fetch(apiUrl("/api/preview", {
             path: filePath || "",
             directory: directory || state.directory || "",
-          }));
+          }), { signal: ctrl.signal, cache: "no-store" });
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
           const sc = await resp.json();
-          applyPayload(sc);
+          if (activePreviewCtrl === ctrl) applyPayload(sc);
         } catch (err) {
-          renderError("加载失败：" + err.message);
+          if (err && err.name === "AbortError") {
+            if (activePreviewCtrl === ctrl && !pageClosing) {
+              renderError("请求超时，请点击下方按钮重试。");
+            }
+            return;
+          }
+          renderError("加载失败：" + (err && err.message ? err.message : String(err)));
+        } finally {
+          clearTimeout(tid);
+          if (activePreviewCtrl === ctrl) activePreviewCtrl = null;
         }
       }
 
@@ -601,7 +625,11 @@
         elStage.innerHTML = `<div class="state-card"><div class="state-title">准备就绪</div><div class="state-desc">${escapeHtml(msg)}</div></div>`;
       }
       function renderError(msg) {
-        elStage.innerHTML = `<div class="state-card"><div class="state-title state-err">预览失败</div><div class="state-desc">${escapeHtml(msg)}</div></div>`;
+        elStage.innerHTML = `<div class="state-card"><div class="state-title state-err">预览失败</div><div class="state-desc">${escapeHtml(msg)}</div><div style="margin-top:12px;"><button id="btnRetryErr" class="path-go">重新加载</button></div></div>`;
+        const retryBtn = document.getElementById("btnRetryErr");
+        if (retryBtn) {
+          retryBtn.addEventListener("click", () => loadPreview(state.file ? state.file.path : INITIAL_FILE, state.directory || INITIAL_DIR));
+        }
       }
 
       function applyZoom() {
@@ -690,30 +718,50 @@
         document.getElementById("pptNext").addEventListener("click", () => { if (state.activeSlide < slides.length - 1) { state.activeSlide++; renderPptx(doc); } });
       }
 
-      // Live sync with MCP server via SSE (only triggers when MCP pushes a new version)
-      function connectLiveSync() {
+      // Lightweight state polling (avoids HTTP/1.1 6-connection-per-origin exhaustion from persistent SSE)
+      let pollTimer = null;
+      let pollInFlight = false;
+
+      async function pollStateOnce() {
+        if (pageClosing || pollInFlight || document.hidden) return;
+        pollInFlight = true;
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 5000);
         try {
-          const es = new EventSource(apiUrl("/api/events"));
-          es.onmessage = (ev) => {
-            try {
-              const data = JSON.parse(ev.data);
-              if (typeof data.version !== "number") return;
-              if (state.stateVersion < 0) {
-                state.stateVersion = data.version;
-                return;
-              }
-              if (data.version > state.stateVersion && data.lastFile) {
-                state.stateVersion = data.version;
-                loadPreview(data.lastFile, data.lastDirectory || state.directory, true);
-              }
-            } catch (_) {}
-          };
-          es.onerror = () => {
-            es.close();
-            setTimeout(connectLiveSync, 5000);
-          };
-        } catch (_) {}
+          const resp = await fetch(apiUrl("/api/state"), { signal: ctrl.signal, cache: "no-store" });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (typeof data.version !== "number") return;
+          if (state.stateVersion < 0) {
+            state.stateVersion = data.version;
+            return;
+          }
+          if (data.version > state.stateVersion && data.lastFile) {
+            state.stateVersion = data.version;
+            if (!INITIAL_FILE || (state.file && state.file.path === data.lastFile)) {
+              loadPreview(data.lastFile, data.lastDirectory || state.directory, true);
+            }
+          }
+        } catch (_) {
+        } finally {
+          clearTimeout(tid);
+          pollInFlight = false;
+        }
       }
+
+      function connectLiveSync() {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(pollStateOnce, 1800);
+      }
+
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && !pageClosing) pollStateOnce();
+      });
+      window.addEventListener("pagehide", () => {
+        pageClosing = true;
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        if (activePreviewCtrl) { try { activePreviewCtrl.abort(); } catch (_) {} }
+      });
 
       // Controls
       elBtnDrawer.addEventListener("click", () => toggleDrawer());

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Antigravity UI Sidecar HTTP Server for Office Viewer (v2.1).
+Antigravity UI Sidecar HTTP Server for Office Viewer (v2.1.1).
 Binds to 127.0.0.1:${ANTIGRAVITY_SIDECAR_WEB_PORT}, serves /ui.html & /preload.js,
-supports HEAD/GET/POST/OPTIONS, SSE live sync, and one-click external Office launching.
+supports HEAD/GET/POST/OPTIONS, live state sync, and one-click external Office launching.
 """
 
 import json
@@ -44,17 +44,28 @@ def get_token():
 
 
 def load_preload_js():
+    candidates = []
     app_data = os.environ.get("ANTIGRAVITY_APP_DATA_DIR", "").strip()
-    if not app_data:
-        app_data = os.path.join(os.path.expanduser("~"), ".gemini", "antigravity")
-    cand = os.path.join(app_data, "lib", "node_modules", "sidecar_sdk", "preload.js")
-    try:
-        with open(cand, "r", encoding="utf-8") as f:
-            txt = f.read()
-            if txt.strip():
-                return txt
-    except Exception:
-        pass
+    if app_data:
+        candidates.append(app_data)
+    exec_dir = os.environ.get("ANTIGRAVITY_EXECUTABLE_DATA_DIR", "").strip()
+    if exec_dir:
+        cur = os.path.abspath(exec_dir)
+        while cur and cur != os.path.dirname(cur):
+            if os.path.basename(cur) == "sidecar_data":
+                candidates.append(os.path.dirname(cur))
+                break
+            cur = os.path.dirname(cur)
+    candidates.append(os.path.join(os.path.expanduser("~"), ".gemini", "antigravity"))
+    for base in candidates:
+        cand = os.path.join(base, "lib", "node_modules", "sidecar_sdk", "preload.js")
+        try:
+            with open(cand, "r", encoding="utf-8") as f:
+                txt = f.read()
+                if txt.strip():
+                    return txt
+        except Exception:
+            pass
     return "// Antigravity sidecar preload bridge stub\nwindow.__sidecarPreloadLoaded = true;\n"
 
 
@@ -95,6 +106,13 @@ def normalize_file_param(val):
 
 class SidecarHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    timeout = 10
+
+    def finish(self):
+        try:
+            super().finish()
+        except OSError:
+            pass
 
     def log_message(self, fmt, *args):
         pass
@@ -180,7 +198,7 @@ class SidecarHandler(BaseHTTPRequestHandler):
 
         if pathname == "/api/preview":
             file_param = ""
-            for key in ("path", "file", "filepath", "filePath", "uri"):
+            for key in ("path", "file", "filepath", "filePath", "uri", "fileUri", "file_path", "file_uri", "resource"):
                 v = (query.get(key, [""])[0] or "").strip()
                 if v:
                     file_param = normalize_file_param(v)
@@ -198,26 +216,47 @@ class SidecarHandler(BaseHTTPRequestHandler):
             return
 
         if pathname == "/api/events":
+            self.close_connection = True
             self.send_response(200)
             self._cors_headers()
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache, no-transform")
-            self.send_header("Connection", "keep-alive")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.send_header("Connection", "close")
             self.end_headers()
             if head_only:
                 return
+
+            def write_chunk(text):
+                raw = text.encode("utf-8")
+                self.wfile.write(("%x\r\n" % len(raw)).encode("ascii") + raw + b"\r\n")
+                self.wfile.flush()
+
             last_ver = -1
+            last_ping = time.monotonic()
+            deadline = time.monotonic() + 30.0
             try:
-                for _ in range(3600):
+                while time.monotonic() < deadline:
                     st = self.server.store.reload()
                     ver = int(st.get("version", 0))
+                    now = time.monotonic()
                     if ver != last_ver:
                         last_ver = ver
-                        msg = json.dumps({"version": ver, "lastFile": st.get("lastFile", ""), "lastDirectory": st.get("lastDirectory", "")}, ensure_ascii=False)
-                        self.wfile.write(("data: %s\n\n" % msg).encode("utf-8"))
-                        self.wfile.flush()
+                        msg = json.dumps({
+                            "version": ver,
+                            "lastFile": st.get("lastFile", ""),
+                            "lastDirectory": st.get("lastDirectory", ""),
+                        }, ensure_ascii=False)
+                        write_chunk("data: %s\n\n" % msg)
+                        last_ping = now
+                    elif now - last_ping >= 5.0:
+                        write_chunk(": ping\n\n")
+                        last_ping = now
                     time.sleep(0.8)
-            except (BrokenPipeError, ConnectionResetError, OSError):
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError):
                 return
             return
 

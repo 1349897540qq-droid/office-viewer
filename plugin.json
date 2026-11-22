@@ -1,7 +1,7 @@
 {
   "name": "office-viewer",
   "displayName": "Office Viewer",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Zero-dependency Antigravity sidecar plugin that previews local Microsoft Office files (.docx, .xlsx, .pptx) directly in the side pane, with auto-detected one-click handoff to local desktop Office apps.",
   "author": {
     "name": "Chaoming Wang",

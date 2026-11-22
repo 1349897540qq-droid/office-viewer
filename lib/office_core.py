@@ -1164,14 +1164,18 @@ def open_external_app(file_path, mode="default", app_path=""):
 # =============================================================================
 # FILE SCANNER & PERSISTENT STATE
 # =============================================================================
-def scan_office_files(directory, max_depth=3):
+def scan_office_files(directory, max_depth=3, max_dirs=400):
     results = []
     if not directory or not os.path.isdir(directory):
         return results
     directory = os.path.abspath(os.path.expanduser(directory))
     base_depth = directory.rstrip(os.sep).count(os.sep)
     skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", ".Trash"}
+    visited_dirs = 0
     for root, dirs, files in os.walk(directory):
+        visited_dirs += 1
+        if visited_dirs > max_dirs:
+            break
         depth = root.rstrip(os.sep).count(os.sep) - base_depth
         if depth >= max_depth:
             dirs[:] = []

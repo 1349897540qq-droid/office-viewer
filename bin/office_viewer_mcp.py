@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Lightweight MCP stdio server for Office Viewer plugin (v2.0).
+Lightweight MCP stdio server for Office Viewer plugin (v2.1.1).
 Syncs active file & directory into shared Sidecar state.json so the right-hand
 Office Viewer Sidecar UI updates immediately, with zero inline blank iframe.
 """
@@ -86,7 +86,7 @@ class OfficeViewerMCP:
                     "result": {
                         "protocolVersion": proto,
                         "capabilities": {"tools": {"listChanged": False}},
-                        "serverInfo": {"name": "office-viewer", "version": "2.0.0"},
+                        "serverInfo": {"name": "office-viewer", "version": "2.1.1"},
                     },
                 }
 
